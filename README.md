@@ -16,4 +16,4 @@ The point light source is displayed in the window as a white cube.
 
 If you still have problems running the program although under the required environment ( it actually happened to me :) ), try typing the following command:
 
-- MESA\_GL\_VERSION\_OVERRIDE=3.3 MESE\_GLSL\_VERSION\_OVERRIDE=330 ./bunny
+- MESA\_GL\_VERSION\_OVERRIDE=3.3 MESA\_GLSL\_VERSION\_OVERRIDE=330 ./bunny
