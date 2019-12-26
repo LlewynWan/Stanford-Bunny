@@ -1,8 +1,10 @@
 # Stanford-Bunny
 
 ## Introduction
-A simple drawing of Stanford bunny using OpenGL.
+A simple drawing of the Stanford bunny using OpenGL.
+
 A parallel and a point light source are used.
+
 The point light source is displayed in the window as a white cube.
 
 ## Environment
