@@ -290,7 +290,6 @@ void pickup(SDL_Event *event)
 		if (!isPressed && event->type == SDL_MOUSEBUTTONDOWN && SDL_BUTTON(SDL_GetMouseState(&x, &y)) == SDL_BUTTON_LEFT)
 		{
 			isPressed = true;
-			std::cout << std::endl << "-------------------------++++++++++++++++++++++++++++++-------------------------" << std::endl;
 			std::cout << "Cursor Position (relative to window): (" << std::fixed << std::setprecision(5) << x << ", " << y << ")" << std::endl;
 		
 			GLint viewport[4];
@@ -323,7 +322,7 @@ void pickup(SDL_Event *event)
 			worldpos_y = U.y*object_x + V.y*object_y + N.y*object_z + camera.Position.y;
 			worldpos_z = U.z*object_x + V.z*object_y + N.z*object_z + camera.Position.z;
 			std::cout << "Cursor Position (in world coordinate): (" << std::fixed << std::setprecision(5) << worldpos_x << ", " << worldpos_y << ", " << worldpos_z << ")" << std::endl;
-			std::cout << "-------------------------++++++++++++++++++++++++++++++-------------------------" << std::endl;
+			std::cout << std::endl;
 		}
 		if (event->type == SDL_MOUSEBUTTONUP)
 			isPressed = false;
