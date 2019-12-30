@@ -48,7 +48,7 @@ vec3 CalcPointLight(PointLight light, vec3 Normal, vec3 FragPos, vec3 viewPos)
 	vec3 ambient = light.ambient * material.ambient;
 
 	vec3 norm = normalize(Normal);
-	vec3 lightDir = normalize(light.position - FragPos);
+	vec3 lightDir = normalize(FragPos - light.position);
 	float diff = max(dot(norm, lightDir), 0.0);
 	vec3 diffuse = light.diffuse * (diff * material.diffuse); 
 

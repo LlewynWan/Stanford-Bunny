@@ -8,16 +8,18 @@
 #include <camera.h>
 #include <display.h>
 
+#define MAX_NUM_INDICES 100005
+
 bool ShouldClose = false;
 
 const unsigned int SCREEN_WIDTH = 1200;
 const unsigned int SCREEN_HEIGHT = 800;
 
-glm::vec3 InitPos = glm::vec3(0.0f, 0.1f, 0.7f);
+glm::vec3 InitPos = glm::vec3(0.0f, 0.3f, 1.0f);
 glm::vec3 InitFront = glm::vec3(0.0f, 0.0f, -1.0f);
 glm::vec3 InitUp = glm::vec3(0.0f, 1.0f, 0.0f);
 
-glm::vec3 lightPos(0.5f, 0.7f, 1.0f);
+glm::vec3 lightPos(0.4f, 0.6f, 3.0f);
 
 float InitYaw = -90.0f;
 float InitPitch = 0.0f;
@@ -26,7 +28,7 @@ float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
 std::vector<float> bunnyVertices;
-std::vector<float> bunnyElemFaces;
+std::vector<unsigned int> bunnyElemFaces;
 
 glm::vec3 bunnyPosition = glm::vec3(0.0f, 0.0f, 0.0f);   
 
@@ -83,31 +85,17 @@ float cubeVertices[] = {
 
 void calculateNormal(int* vertex)
 {
-	vertex[0] *= 5;
-	vertex[1] *= 5;
-	vertex[2] *= 5;
-	float va[3], vb[3], vr[3], val;
-	va[0] = bunnyVertices[vertex[0]] - bunnyVertices[vertex[1]];
-	va[1] = bunnyVertices[vertex[0]+1] - bunnyVertices[vertex[1]+1];
-	va[2] = bunnyVertices[vertex[0]+2] - bunnyVertices[vertex[1]+2];
-	vb[0] = bunnyVertices[vertex[0]] - bunnyVertices[vertex[2]];
-	vb[1] = bunnyVertices[vertex[0]+1] - bunnyVertices[vertex[2]+1];
-	vb[2] = bunnyVertices[vertex[0]+2] - bunnyVertices[vertex[2]+2];
-
-	vr[0] = va[1]*vb[2] - vb[1]*va[2];
-   	vr[1] = vb[0]*va[2] - va[0]*vb[2];
-   	vr[2] = va[0]*vb[1] - vb[0]*va[1];
-
-	val = sqrt(vr[0]*vr[0] + vr[1]*vr[1] + vr[2]*vr[2]);
-
-	for (int i = 0; i < 3; i++)	
+	vertex[0] *= 6;
+	vertex[1] *= 6;
+	vertex[2] *= 6;
+	glm::vec3 vector1 = glm::vec3(bunnyVertices[vertex[1]] - bunnyVertices[vertex[0]], bunnyVertices[vertex[1]+1] - bunnyVertices[vertex[0]+1], bunnyVertices[vertex[1]+2] - bunnyVertices[vertex[0]+2]);
+	glm::vec3 vector2 = glm::vec3(bunnyVertices[vertex[2]] - bunnyVertices[vertex[1]], bunnyVertices[vertex[2]+1] - bunnyVertices[vertex[1]+1], bunnyVertices[vertex[2]+2] - bunnyVertices[vertex[1]+2]);
+	glm::vec3 norm = glm::normalize(glm::cross(vector1, vector2));
+	for (int i = 0; i < 3; i++)
 	{
-		bunnyElemFaces.push_back(bunnyVertices[vertex[i]]);
-		bunnyElemFaces.push_back(bunnyVertices[vertex[i]+1]);
-		bunnyElemFaces.push_back(bunnyVertices[vertex[i]+2]);
-		bunnyElemFaces.push_back(vr[0]/val);
-		bunnyElemFaces.push_back(vr[1]/val);
-		bunnyElemFaces.push_back(vr[2]/val);
+		bunnyVertices[vertex[i]+3] += norm.x;
+		bunnyVertices[vertex[i]+4] += norm.y;
+		bunnyVertices[vertex[i]+5] += norm.z;
 	}
 }
 
@@ -135,8 +123,9 @@ int main()
 		bunnyVertices.push_back(x);
 		bunnyVertices.push_back(y);
 		bunnyVertices.push_back(z);
-		bunnyVertices.push_back(confidence);
-		bunnyVertices.push_back(intensity);
+		bunnyVertices.push_back(0.0);
+		bunnyVertices.push_back(0.0);
+		bunnyVertices.push_back(0.0);
 	}
 	for (int i = 0; i < numFaces; i++)
 	{
@@ -144,10 +133,13 @@ int main()
 		PLYFile >> num_vertices;
 		int vertex[num_vertices];
 		for (int j = 0; j < num_vertices; j++)
+		{
 			PLYFile >> vertex[j];
+			bunnyElemFaces.push_back(vertex[j]);
+		};
 		calculateNormal(vertex);
 	}
-
+	PLYFile.close();
 	glEnable(GL_DEPTH_TEST);
 	Shader bunnyShader("res/bunny");
 	Shader lampShader("res/lamp");
@@ -159,11 +151,20 @@ int main()
 	GLuint bunnyVBO;
 	glGenBuffers(1, &bunnyVBO);
 	glBindBuffer(GL_ARRAY_BUFFER, bunnyVBO);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(float)*bunnyElemFaces.size(), bunnyElemFaces.data(), GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(float)*bunnyVertices.size(), bunnyVertices.data(), GL_STATIC_DRAW);
+
+	GLuint bunnyEBO;
+	glGenBuffers(1, &bunnyEBO);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, bunnyEBO);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int)*bunnyElemFaces.size(), bunnyElemFaces.data(), GL_STATIC_DRAW);
+
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
 	glEnableVertexAttribArray(0);
-	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(GL_FLOAT)));
 	glEnableVertexAttribArray(1);
+
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+    	glBindVertexArray(0);
 
 	GLuint lampVAO;
 	glGenVertexArrays(1, &lampVAO);
@@ -175,6 +176,9 @@ int main()
 	glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), cubeVertices, GL_STATIC_DRAW);
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)0);
 	glEnableVertexAttribArray(0);
+
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+    	glBindVertexArray(0);
 
 	SDL_SetRelativeMouseMode(SDL_TRUE);
 	while (!ShouldClose)
@@ -201,25 +205,25 @@ int main()
 		bunnyShader.setVec3("objectColor", 0.843f, 0.863f, 0.867f);
 		bunnyShader.setVec3("pointLight.position", lightPos);
 		bunnyShader.setVec3("viewPos", camera.Position);
-		bunnyShader.setVec3("pointLight.ambient", 0.1f, 0.1f, 0.1f);
-		bunnyShader.setVec3("pointLight.diffuse", 0.8f, 0.8f, 0.8f);
-		bunnyShader.setVec3("pointLight.specular", 1.0f, 1.0f, 1.0f);
+		bunnyShader.setVec3("pointLight.ambient", 0.2f, 0.2f, 0.2f);
+		bunnyShader.setVec3("pointLight.diffuse", 0.4f, 0.4f, 0.4f);
+		bunnyShader.setVec3("pointLight.specular", 0.7f, 0.7f, 0.7f);
 		bunnyShader.setFloat("pointLight.constant", 1.0f);
 		bunnyShader.setFloat("pointLight.linear", 0.09f);
 		bunnyShader.setFloat("pointLight.quadratic", 0.032);
 
-		bunnyShader.setVec3("dirLight.direction", -0.2f, -1.0f, 0.3f);
-		bunnyShader.setVec3("dirLight.ambient", 0.6f, 0.6f, 0.6f);
-		bunnyShader.setVec3("dirLight.diffuse", 0.8f, 0.8f, 0.8f);
+		bunnyShader.setVec3("dirLight.direction", -0.5f, -0.5f, -0.5f);
+		bunnyShader.setVec3("dirLight.ambient", 0.3f, 0.3f, 0.3f);
+		bunnyShader.setVec3("dirLight.diffuse", 0.6f, 0.6f, 0.6f);
 		bunnyShader.setVec3("dirLight.specular", 1.0f, 1.0f, 1.0f);
 
-		bunnyShader.setVec3("material.ambient", 0.2f, 0.2f, 0.2f);
-		bunnyShader.setVec3("material.diffuse", 0.02f, 0.02f, 0.02f);
-		bunnyShader.setVec3("material.specular", 1.0f, 1.0f, 1.0f);
+		bunnyShader.setVec3("material.ambient", 0.4f, 0.4f, 0.4f);
+		bunnyShader.setVec3("material.diffuse", 0.7f, 0.7f, 0.7f);
+		bunnyShader.setVec3("material.specular", 0.3f, 0.3f, 0.3f);
 		bunnyShader.setFloat("material.shininess", 8.0f);
 
 		glBindVertexArray(bunnyVAO);
-		glDrawArrays(GL_TRIANGLES, 0, bunnyElemFaces.size());
+		glDrawElements(GL_TRIANGLES, 3*numFaces, GL_UNSIGNED_INT, 0);
 
 		lampShader.use();
 		lampShader.setMat4("projection", projection);
@@ -290,7 +294,6 @@ void pickup(SDL_Event *event)
 		if (!isPressed && event->type == SDL_MOUSEBUTTONDOWN && SDL_BUTTON(SDL_GetMouseState(&x, &y)) == SDL_BUTTON_LEFT)
 		{
 			isPressed = true;
-			//std::cout << std::endl << "-------------------------++++++++++++++++++++++++++++++-------------------------" << std::endl;
 			std::cout << "Cursor Position (relative to window): (" << std::fixed << std::setprecision(5) << x << ", " << y << ")" << std::endl;
 		
 			GLint viewport[4];
@@ -305,25 +308,27 @@ void pickup(SDL_Event *event)
     			glGetIntegerv(GL_VIEWPORT, viewport);
 
  			winX = (float)mouse_x;
-    			winY = (float)viewport[3] - (float)mouse_y - 1.0f;
+    			winY = (float)viewport[3] - (float)mouse_y;
     			glReadBuffer(GL_BACK);
-    			glReadPixels(mouse_x, int(winY), 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &winZ);
-    			gluUnProject((GLdouble)winX, (GLdouble)winY, (GLdouble)winZ, modelview, projection, viewport, &object_x, &object_y, &object_z);
+    			glReadPixels(mouse_x, (int)winY, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &winZ);
+			gluUnProject((GLdouble)winX, (GLdouble)winY, winZ, modelview, projection, viewport, &object_x, &object_y, &object_z);
 
 			std::cout <<"Cursor Position (in viewport): (" << std::fixed << std::setprecision(5) << object_x << ", " << object_y << ", " << object_z << ")" << std::endl;
 
-			glm::vec3 pp(object_x, object_y, object_z);
-			glm::vec3 U, V, N;
-			N = glm::normalize(camera.Position - camera.Front);
-			U = glm::normalize(glm::cross(N, camera.WorldUp));
-			V = glm::normalize(glm::cross(U, N));
+			int minIndex = -1;
+			float minDistance = glm::pow(10, 20);
+			for (unsigned int i = 0; i < bunnyVertices.size(); i += 6)
+			{
+				float distance = (object_x-bunnyVertices[i])*(object_x-bunnyVertices[i]) + (object_y-bunnyVertices[i+1])*(object_y-bunnyVertices[i+1]) + (object_z-bunnyVertices[i+2])*(object_z-bunnyVertices[i+2]);
+				if (distance < minDistance)
+				{
+					minDistance = distance;
+					minIndex = i / 6;
+				}
+			}
 
-			GLdouble worldpos_x, worldpos_y, worldpos_z;
-			worldpos_x = U.x*object_x + V.x*object_y + N.x*object_z + camera.Position.x;
-			worldpos_y = U.y*object_x + V.y*object_y + N.y*object_z + camera.Position.y;
-			worldpos_z = U.z*object_x + V.z*object_y + N.z*object_z + camera.Position.z;
-			std::cout << "Cursor Position (in world coordinate): (" << std::fixed << std::setprecision(5) << worldpos_x << ", " << worldpos_y << ", " << worldpos_z << ")" << std::endl;
-			//std::cout << "-------------------------++++++++++++++++++++++++++++++-------------------------" << std::endl;
+			if (minDistance <= 0.5)
+				std::cout << "Cursor Index: " << minIndex << std::endl;
 			std::cout << std::endl;
 		}
 		if (event->type == SDL_MOUSEBUTTONUP)
