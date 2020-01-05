@@ -3,6 +3,10 @@
 #include <vector>
 #include <string>
 #include <iomanip>
+#include <algorithm>
+
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/intersect.hpp>
 
 #include <shader.h>
 #include <camera.h>
@@ -27,13 +31,24 @@ float InitPitch = 0.0f;
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
+int drawMode = 0;
+int mouse_x = -1;
+int mouse_y = -1;
+std::vector<unsigned int> selectedIndices;
+
+bool isAltPressed = false;
+
 std::vector<float> bunnyVertices;
 std::vector<unsigned int> bunnyElemFaces;
+
+glm::mat4 bunnyProjection;
+glm::mat4 bunnyModel;
+glm::mat4 bunnyView;
 
 glm::vec3 bunnyPosition = glm::vec3(0.0f, 0.0f, 0.0f);   
 
 void processInput();
-void pickup(SDL_Event *event);
+void selectIndex();
 void keyboard_callback(SDL_KeyboardEvent* event, float deltaTime);
 
 Camera camera(InitPos, InitUp, InitYaw, InitPitch);
@@ -140,7 +155,15 @@ int main()
 		calculateNormal(vertex);
 	}
 	PLYFile.close();
+
 	glEnable(GL_DEPTH_TEST);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+	glEnable(GL_CULL_FACE);
+	glCullFace(GL_BACK);
+	glFrontFace(GL_CW);
+
 	Shader bunnyShader("res/bunny");
 	Shader lampShader("res/lamp");
 
@@ -195,12 +218,15 @@ int main()
 		display.GetSize(&w, &h);
 		glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)w/(float)h, 0.1f, 100.0f);
 		bunnyShader.setMat4("projection", projection);
+		bunnyProjection = projection;
 
 		glm::mat4 view = glm::lookAt(camera.Position, camera.Position + camera.Front, camera.Up);
 		bunnyShader.setMat4("view", view);
+		bunnyView = view;
 
 		glm::mat4 model = glm::mat4(1.0f);
 		bunnyShader.setMat4("model", model);
+		bunnyModel = model;
 		
 		bunnyShader.setVec3("objectColor", 0.843f, 0.863f, 0.867f);
 		bunnyShader.setVec3("pointLight.position", lightPos);
@@ -223,7 +249,25 @@ int main()
 		bunnyShader.setFloat("material.shininess", 8.0f);
 
 		glBindVertexArray(bunnyVAO);
+		
+		bunnyShader.setBool("isDrawPoint", 0);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int)*bunnyElemFaces.size(), bunnyElemFaces.data(), GL_STATIC_DRAW);
+		switch (drawMode)
+		{
+			case 0: glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); break;
+			case 1: glPolygonMode(GL_FRONT_AND_BACK, GL_LINE); break;
+			case 2: glPointSize(3.0f); glPolygonMode(GL_FRONT_AND_BACK, GL_POINT); break;
+		}
 		glDrawElements(GL_TRIANGLES, 3*numFaces, GL_UNSIGNED_INT, 0);
+
+		if (selectedIndices.size())
+		{
+			bunnyShader.setBool("isDrawPoint", 1);
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, selectedIndices.size()*sizeof(unsigned int), selectedIndices.data(), GL_DYNAMIC_DRAW);
+			glPointSize(5.0f);
+			glDrawElements(GL_POINTS, selectedIndices.size(), GL_UNSIGNED_INT, 0);
+
+		}
 
 		lampShader.use();
 		lampShader.setMat4("projection", projection);
@@ -232,8 +276,9 @@ int main()
 		model = glm::scale(model, glm::vec3(0.1f));
 		lampShader.setMat4("model", model);
 		glBindVertexArray(lampVAO);
+		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 		glDrawArrays(GL_TRIANGLES, 0, 36);
-
+	
 		display.SwapBuffer();
 		processInput();
 
@@ -266,12 +311,36 @@ void processInput()
 				}
 				break;
 			case SDL_KEYDOWN:
-				if (SDL_GetKeyboardState(NULL)[SDL_SCANCODE_LALT])
-					pickup(&event);
-				else keyboard_callback(&event.key, deltaTime);
+				if (SDL_GetKeyboardState(NULL)[SDL_SCANCODE_LALT] || SDL_GetKeyboardState(NULL)[SDL_SCANCODE_RALT])
+				{
+					isAltPressed = true;
+					SDL_SetRelativeMouseMode(SDL_FALSE);
+				} else if (SDL_GetKeyboardState(NULL)[SDL_SCANCODE_TAB])
+					drawMode = (drawMode+1) % 3;
+				else if (!isAltPressed)
+					keyboard_callback(&event.key, deltaTime);
+				break;
+			case SDL_KEYUP:
+				if (!SDL_GetKeyboardState(NULL)[SDL_SCANCODE_LALT] && !SDL_GetKeyboardState(NULL)[SDL_SCANCODE_RALT])
+				{
+					isAltPressed = false;
+					SDL_SetRelativeMouseMode(SDL_TRUE);
+				}
+				break;
+			case SDL_MOUSEBUTTONDOWN:
+				int x,y;
+				if (SDL_BUTTON(SDL_GetMouseState(&x, &y)) == SDL_BUTTON_LEFT)
+				{
+					mouse_x = x;
+					mouse_y = y;
+				}
+				break;
+			case SDL_MOUSEBUTTONUP:
+				selectIndex();
 				break;
 			case SDL_MOUSEMOTION:
-				camera.ProcessMouseMovement((float)event.motion.xrel, -(float)event.motion.yrel);
+				if (!isAltPressed)
+					camera.ProcessMouseMovement((float)event.motion.xrel, -(float)event.motion.yrel);
 				break;
 			case SDL_MOUSEWHEEL:
 				camera.ProcessMouseScroll(event.wheel.y);
@@ -281,62 +350,89 @@ void processInput()
 		}
 }
 
-void pickup(SDL_Event *event)
+void selectIndex()
 {
-	SDL_SetRelativeMouseMode(SDL_FALSE);
+	if (mouse_x < 0 || mouse_y < 0)
+		return;
 
-	bool isPressed = false;
-	for (;;)
+	int WIDTH,HEIGHT;
+	display.GetSize(&WIDTH, &HEIGHT);
+
+	float x = (2.0f * mouse_x) / WIDTH - 1.0f;
+	float y = 1.0f - (2.0f * mouse_y) / HEIGHT;
+	float z = 1.0f;
+	glm::fvec3 ray_nds(x, y, z);
+	glm::vec4 ray_clip = glm::vec4(ray_nds.x, ray_nds.y, -1.0f, 0.0f);
+	glm::fvec4 ray_camera = glm::inverse(bunnyProjection) * ray_clip;
+	ray_camera = glm::dvec4(ray_camera.x, ray_camera.y, -1.0f, 0.0f);
+	glm::fvec4 tmp = glm::inverse(bunnyView) * ray_camera;
+	glm::fvec3 ray_world(tmp.x, tmp.y, tmp.z);
+	ray_world = glm::normalize(ray_world);
+
+	std::vector<glm::vec3> resultFaces;
+	std::vector<int> resultIndices;
+	glm::vec3 p(1.0f, 1.0f, 1.0f);
+
+	for (unsigned int i = 0; i < bunnyElemFaces.size(); i += 3)
 	{
-		SDL_PollEvent(event);
-		
-		int x, y;
-		if (!isPressed && event->type == SDL_MOUSEBUTTONDOWN && SDL_BUTTON(SDL_GetMouseState(&x, &y)) == SDL_BUTTON_LEFT)
+		glm::vec3 position[3];
+		for (int j = 0; j < 3; j++)
+			position[j] = glm::vec3(bunnyModel * glm::vec4(bunnyVertices[bunnyElemFaces[i+j]*6], bunnyVertices[bunnyElemFaces[i+j]*6+1], bunnyVertices[bunnyElemFaces[i+j]*6+2], 1.0f));
+		if (glm::intersectLineTriangle(camera.Position, ray_world, position[0], position[1], position[2], p))
 		{
-			isPressed = true;
-			std::cout << "Cursor Position (relative to window): (" << std::fixed << std::setprecision(5) << x << ", " << y << ")" << std::endl;
-		
-			GLint viewport[4];
-    			GLdouble modelview[16];
-    			GLdouble projection[16];
-    			GLfloat winX, winY, winZ;
-    			GLdouble object_x, object_y, object_z;
-    			int mouse_x = x;
-    			int mouse_y = y;
-    			glGetDoublev(GL_MODELVIEW_MATRIX, modelview);
-    			glGetDoublev(GL_PROJECTION_MATRIX, projection);
-    			glGetIntegerv(GL_VIEWPORT, viewport);
+			glm::vec3 resultPoint = camera.Position + ray_world * p.x;
+			resultFaces.push_back(resultPoint);
+			resultIndices.push_back(i);
+		}
+	}
 
- 			winX = (float)mouse_x;
-    			winY = (float)viewport[3] - (float)mouse_y;
-    			glReadBuffer(GL_BACK);
-    			glReadPixels(mouse_x, (int)winY, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &winZ);
-			gluUnProject((GLdouble)winX, (GLdouble)winY, winZ, modelview, projection, viewport, &object_x, &object_y, &object_z);
-
-			std::cout <<"Cursor Position (in viewport): (" << std::fixed << std::setprecision(5) << object_x << ", " << object_y << ", " << object_z << ")" << std::endl;
-
-			int minIndex = -1;
-			float minDistance = glm::pow(10, 20);
-			for (unsigned int i = 0; i < bunnyVertices.size(); i += 6)
+	if (resultFaces.size())
+	{
+		float min_dst = 0;
+		unsigned int min_index = 0;
+		for (unsigned int i = 0; i < resultFaces.size(); i++)
+		{
+			glm::vec3 tmp = resultFaces[i];
+			float dst = glm::distance(camera.Position, tmp);
+			if (i == 0)
 			{
-				float distance = (object_x-bunnyVertices[i])*(object_x-bunnyVertices[i]) + (object_y-bunnyVertices[i+1])*(object_y-bunnyVertices[i+1]) + (object_z-bunnyVertices[i+2])*(object_z-bunnyVertices[i+2]);
-				if (distance < minDistance)
+				min_index = i;
+				min_dst = dst;
+			} else {
+				if (min_dst > dst)
 				{
-					minDistance = distance;
-					minIndex = i / 6;
+					min_dst = dst;
+					min_index = i;
 				}
 			}
-
-			if (minDistance <= 0.5)
-				std::cout << "Cursor Index: " << minIndex << std::endl;
-			std::cout << std::endl;
 		}
-		if (event->type == SDL_MOUSEBUTTONUP)
-			isPressed = false;
-		if (event->type == SDL_KEYUP && event->key.keysym.scancode == 226)
-			break;
+
+		int towardIndex = resultIndices[min_index];
+		glm::vec3 intersectPoint = resultFaces[min_index];
+		for (int i = 0; i < 3; i++)
+		{
+			int vertexIndex = bunnyElemFaces[towardIndex+i];
+			glm::vec3 tmp = glm::vec3(bunnyModel * glm::vec4(bunnyVertices[vertexIndex*6], bunnyVertices[vertexIndex*6+1], bunnyVertices[vertexIndex*6+2], 1.0f));
+			float dst = glm::distance(intersectPoint, tmp);
+			if (i == 0)
+			{
+				min_index = vertexIndex;
+				min_dst = dst;
+			} else {
+				if (min_dst > dst)
+				{
+					min_dst = dst;
+					min_index = vertexIndex;
+				}
+			}
+		}
+
+		std::vector<unsigned int>::iterator pos = std::find(selectedIndices.begin(), selectedIndices.end(), min_index);
+		if (pos != selectedIndices.end())
+			selectedIndices.erase(pos);
+		else
+			selectedIndices.push_back(min_index);
 	}
-	SDL_SetRelativeMouseMode(SDL_TRUE);
 }
 
 void keyboard_callback(SDL_KeyboardEvent *event, float deltaTime)

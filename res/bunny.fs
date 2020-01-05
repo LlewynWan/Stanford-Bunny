@@ -2,6 +2,8 @@
 in vec3 Normal;
 in vec3 FragPos;
 
+uniform bool isDrawPoint;
+
 uniform vec3 objectColor;
 uniform vec3 viewPos;
 
@@ -82,5 +84,8 @@ vec3 CalcDirLight(DirLight light, vec3 Normal, vec3 viewPos)
 void main()
 {
 	vec3 result = CalcDirLight(dirLight, Normal, viewPos) + CalcPointLight(pointLight, Normal, FragPos, viewPos);
-	FragColor = vec4(result, 1.0);
+	if (isDrawPoint)
+		FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+	else
+		FragColor = vec4(result, 1.0);
 }
