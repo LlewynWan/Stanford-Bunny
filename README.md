@@ -9,6 +9,7 @@ The point light source is displayed in the window as a white cube.
 - linux/windows
 - OpenGL 3.3
 - GLSL 330
+- SDL 2.0
 
 ## How to run
 In the directory, type the command below:
